@@ -1,0 +1,40 @@
+schema_version: dream.services.v1
+
+service:
+  id: flowise
+  name: Flowise
+  aliases: [flow, workflow]
+  container_name: dream-flowise
+  host_env: FLOWISE_HOST
+  default_host: flowise
+  port: 3000
+  external_port_env: FLOWISE_PORT
+  external_port_default: 7801
+  health: /api/v1/health
+  type: docker
+  gpu_backends: [none]
+  category: optional
+  depends_on: []
+  description: |
+    Visual LLM workflow builder with drag-and-drop interface.
+    Build AI agents, chatbots, and automation flows without code.
+    Integrates with OpenAI, Anthropic, local models, and 100+ tools.
+  
+  features:
+    workflow:
+      description: Visual drag-and-drop workflow builder
+      vram_required_mb: 0
+    agents:
+      description: Build AI agents with tools and memory
+      vram_required_mb: 0
+    integration:
+      description: 100+ integrations (databases, APIs, LLMs)
+      vram_required_mb: 0
+    
+  tags:
+    - workflow
+    - visual
+    - nocode
+    - agents
+    - automation
+    - lowcode

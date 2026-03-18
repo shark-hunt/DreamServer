@@ -1,0 +1,45 @@
+schema_version: dream.services.v1
+
+service:
+  id: paperless-ngx
+  name: Paperless-ngx
+  aliases: [paperless, document-manager]
+  container_name: dream-paperless
+  host_env: PAPERLESS_HOST
+  default_host: paperless
+  port: 8000
+  external_port_env: PAPERLESS_PORT
+  external_port_default: 7807
+  health: /accounts/login/
+  type: docker
+  gpu_backends: [none]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: []
+  env_vars: []
+  description: |
+    Paperless-ngx is a document management system that transforms your physical
+    documents into a searchable online archive. OCR, tagging, automatic
+    classification, and full-text search for PDFs and images.
+
+  features:
+    ocr:
+      description: Automatic OCR for scanned PDFs and images
+      vram_required_mb: 0
+    document-tags:
+      description: Auto and manual tagging for organization
+      vram_required_mb: 0
+    fulltext-search:
+      description: Search inside all your documents
+      vram_required_mb: 0
+    email-import:
+      description: Import documents via email
+      vram_required_mb: 0
+
+  tags:
+    - documents
+    - ocr
+    - archive
+    - pdf
+    - search
+    - productivity

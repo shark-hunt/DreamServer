@@ -1,0 +1,206 @@
+{
+  "name": "ComfyUI Dynamic Workflow Generation",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "comfyui-dynamic-workflow",
+        "options": {}
+      },
+      "id": "comfyui-dynamic-workflow-webhook",
+      "name": "ComfyUI Image Gen Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst headers = $json.headers || {};\n\nconst expectedKey = $env.COMFYUI_DYNAMIC_API_KEY;\nconst providedKey = headers['x-api-key'] || headers['X-API-Key'];\n\nfunction timingSafeEqual(a, b) {\n  if (a.length !== b.length) return false;\n  let result = 0;\n  for (let i = 0; i < a.length; i++) {\n    result |= a.charCodeAt(i) ^ b.charCodeAt(i);\n  }\n  return result === 0;\n}\n\nif (expectedKey && expectedKey.length > 0) {\n  if (!providedKey) {\n    return [{ json: { error: 'Authentication required', code: 401 } }];\n  }\n  if (!timingSafeEqual(expectedKey, providedKey)) {\n    return [{ json: { error: 'Invalid API key', code: 403 } }];\n  }\n} else if (providedKey) {\n  return [{ json: { error: 'Server not configured for API key auth', code: 401 } }];\n}\n\nreturn [{\n  json: {\n    prompt: body.prompt || body.message || 'Create a beautiful landscape image',\n    channel: body.channel || '#general',\n    model: body.model || 'local-model',\n    max_tokens: parseInt(body.max_tokens || '2000'),\n    temperature: parseFloat(body.temperature || '0.7'),\n    top_p: parseFloat(body.top_p || '0.9')\n  }\n}];"
+      },
+      "id": "validate-and-auth",
+      "name": "Validate and Auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://' + ($env.LLM_HOST || 'localhost') + ':' + ($env.LLM_API_PORT || '8080') + '/v1/chat/completions' }}",
+        "method": "POST",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": "={{ JSON.stringify({\n  messages: [\n    {\n      role: 'system',\n      content: `You are a ComfyUI workflow generator. Generate a valid ComfyUI workflow JSON that can be directly used with the ComfyUI API.\n      \n      Requirements:\n      - Output ONLY valid JSON, no markdown formatting\n      - Use the workflow structure with node IDs as strings\n      - Include all required fields for each node\n      - Generate an image generation workflow based on the user prompt\n      - Include nodes for: CheckpointLoaderSimple, KSampler, VAEDecode, SaveImage\n      - Set positive and negative prompts from the user input\n      - Return just the workflow object, wrapped in {\\"workflow\\": ...}`\n    },\n    {\n      role: 'user',\n      content: $json.prompt\n    }\n  ],\n  model: $json.model || 'local-model',\n  max_tokens: $json.max_tokens || 2000,\n  temperature: $json.temperature || 0.7,\n  top_p: $json.top_p || 0.9,\n  stream: false\n}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "llm-api",
+      "name": "LLM Chat API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json;\nconst channel = $items('Validate and Auth')[0].json.channel;\n\nconst choice = body.choices && body.choices[0] ? body.choices[0] : null;\nconst message = choice ? choice.message : null;\nconst content = message ? message.content : '';\n\nlet workflowJson = content.trim();\n\n// Handle ```json with optional space\nconst jsonMatch = workflowJson.match(/```(?:json)?\\s*([\\s\\S]*?)```/);\nif (jsonMatch) {\n  workflowJson = jsonMatch[1].trim();\n}\n\n// Remove any escaped newlines\nworkflowJson = workflowJson.replace(/\\\\n/g, '\\n');\n\ntry {\n  const parsed = JSON.parse(workflowJson);\n  const workflow = parsed.workflow || parsed;\n  \n  return [{\n    json: {\n      success: true,\n      workflow: workflow,\n      channel: channel,\n      raw_response: content,\n      model: body.model || 'unknown',\n      timestamp: new Date().toISOString()\n    }\n  }];\n} catch (error) {\n  return [{\n    json: {\n      success: false,\n      error: error.message,\n      channel: channel,\n      raw_response: content,\n      timestamp: new Date().toISOString()\n    }\n  }];\n}"
+      },
+      "id": "process-llm-response",
+      "name": "Process LLM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://' + ($env.COMFYUI_HOST || 'localhost') + ':' + ($env.COMFYUI_PORT || '8188') + '/prompt' }}",
+        "method": "POST",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": "={{ JSON.stringify({\n  prompt: $json.workflow,\n  client_id: 'n8n-comfyui-integration'\n}) }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "comfyui-api",
+      "name": "ComfyUI Prompt API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json;\nconst channel = $items('Process LLM Response')[0].json.channel;\nconst promptId = body.prompt_id || body.id || 'unknown';\nconst node_ids = body.node_ids || [];\n\nreturn [{\n  json: {\n    success: true,\n    prompt_id: promptId,\n    nodes_queued: node_ids.length,\n    channel: channel,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "process-comfyui-response",
+      "name": "Process ComfyUI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.channel }}",
+        "text": "={{ '*ComfyUI Dynamic Workflow Complete*\\n\\n**Prompt ID:** ' + $json.prompt_id + '\\n**Nodes Queued:** ' + $json.nodes_queued + '\\n**Status:** Workflow submitted to ComfyUI' }}"
+      },
+      "id": "discord-output",
+      "name": "Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $items('Validate and Auth')[0].json.channel || '#general' }}",
+        "text": "={{ '*ComfyUI Workflow Error*\\n\\n**Error:** ' + ($json.error || 'Unknown error') + '\\n**Stage:** ' + ($json.stage || 'Unknown') }}"
+      },
+      "id": "error-discord-output",
+      "name": "Error Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [850, 500]
+    }
+  ],
+  "connections": {
+    "ComfyUI Image Gen Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate and Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate and Auth": {
+      "main": [
+        [
+          {
+            "node": "LLM Chat API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Chat API": {
+      "main": [
+        [
+          {
+            "node": "Process LLM Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "Error Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process LLM Response": {
+      "main": [
+        [
+          {
+            "node": "ComfyUI Prompt API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ComfyUI Prompt API": {
+      "main": [
+        [
+          {
+            "node": "Process ComfyUI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "Error Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process ComfyUI Response": {
+      "main": [
+        [
+          {
+            "node": "Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "comfyui-dynamic-workflow-gen-v2"
+  }
+}

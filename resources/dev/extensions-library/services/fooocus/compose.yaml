@@ -1,0 +1,34 @@
+services:
+  fooocus:
+    image: runpod/fooocus:2.5.3
+    container_name: dream-fooocus
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - FOOOCUS_API_HOST=0.0.0.0
+      - FOOOCUS_API_PORT=7865
+    volumes:
+      - ./data/fooocus:/app/outputs:rw
+    ports:
+      - "${FOOOCUS_PORT:-7865}:7865"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7865/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - dream-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 8G
+        reservations:
+          cpus: '0.5'
+          memory: 2G
+
+networks:
+  dream-network:
+    external: true

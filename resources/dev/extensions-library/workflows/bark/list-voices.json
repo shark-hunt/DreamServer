@@ -1,0 +1,92 @@
+{
+  "name": "Bark TTS List Voices",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "bark-voices",
+        "options": {}
+      },
+      "id": "bark-voices-webhook",
+      "name": "Bark Voices Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://' + ($env.BARK_HOST || 'localhost') + ':' + ($env.BARK_PORT || '8000') + '/voices' }}",
+        "method": "GET",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "bark-voices-api",
+      "name": "Bark Voices API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process voices list\nconst voices = $json;\nconst language = $json.language || 'english';\nconst voiceList = voices[language] || voices.english || [];\n\nreturn [{\n  json: {\n    language: language,\n    total_voices: voiceList.length,\n    voices: voiceList,\n    available_languages: Object.keys(voices),\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "process-voices-response",
+      "name": "Process Voices Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.channel || '#general' }}",
+        "text": "={{ '*Bark Available Voices*\\n\\n**Language:** ' + $json.language + '\\n**Total Voices:** ' + $json.total_voices + '\\n\\n' + $json.voices.slice(0, 5).join('\\n') + ($json.total_voices > 5 ? '\\n... and ' + ($json.total_voices - 5) + ' more' : '') }}"
+      },
+      "id": "voices-discord-output",
+      "name": "Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Bark Voices Webhook": {
+      "main": [
+        [
+          {
+            "node": "Bark Voices API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bark Voices API": {
+      "main": [
+        [
+          {
+            "node": "Process Voices Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Voices Response": {
+      "main": [
+        [
+          {
+            "node": "Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "bark-voices-workflow-v1"
+  }
+}

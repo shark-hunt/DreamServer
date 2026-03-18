@@ -1,0 +1,18 @@
+schema_version: dream.services.v1
+
+service:
+  id: privacy_shield
+  name: Privacy Shield (PII Protection)
+  aliases: []
+  container_name: dream-privacy-shield
+  host_env: PRIVACY_SHIELD_HOST
+  default_host: privacy-shield
+  port: 8085
+  external_port_env: SHIELD_PORT
+  external_port_default: 7808
+  health: /health
+  type: docker
+  gpu_backends: [amd, nvidia]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: [llama-server]

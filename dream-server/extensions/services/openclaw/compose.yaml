@@ -1,0 +1,40 @@
+services:
+  openclaw:
+    image: ghcr.io/openclaw/openclaw:2026.3.8
+    container_name: dream-openclaw
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - OPENCLAW_CONFIG=/config/openclaw-strix-halo.json
+      - OPENCLAW_DATA=/data
+      - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_TOKEN:?Set OPENCLAW_TOKEN in .env}
+      - LLM_MODEL=${LLM_MODEL:-qwen3:30b-a3b}
+      - BOOTSTRAP_MODEL=${BOOTSTRAP_MODEL:-qwen3:8b-q4_K_M}
+      - OLLAMA_URL=${LLM_API_URL:-http://llama-server:8080}
+      - SEARXNG_BASE_URL=http://searxng:8080
+    entrypoint: ["/bin/sh", "-c", "node /config/inject-token.js; exec docker-entrypoint.sh node openclaw.mjs gateway --allow-unconfigured --bind lan"]
+    volumes:
+      - ./config/openclaw:/config:ro
+      - ./data/openclaw:/data
+      - ./data/openclaw/home:/home/node/.openclaw
+      - ./config/openclaw/workspace:/home/node/.openclaw/workspace
+    ports:
+      - "127.0.0.1:${OPENCLAW_PORT:-7860}:18789"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    depends_on:
+      searxng:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:18789/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

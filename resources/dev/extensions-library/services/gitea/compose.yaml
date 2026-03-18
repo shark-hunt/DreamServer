@@ -1,0 +1,53 @@
+services:
+  gitea:
+    image: gitea/gitea:1.23.5-rootless@sha256:e4ee234ce0075070337e852e1e0639f1e6061e3e9b43f3e8d145e2a1e0c06f55
+    container_name: dream-gitea
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - GITEA_APP_NAME=${GITEA_APP_NAME:-Dream Server Git}
+      - GITEA_RUN_MODE=prod
+      - GITEA_WORK_DIR=/var/lib/gitea
+      - GITEA_CUSTOM=/var/lib/gitea/custom
+      - GITEA_TEMP=/tmp/gitea
+      - GITEA_LOG__MODE=console
+      - GITEA_DATABASE__DB_TYPE=sqlite3
+      - GITEA_DATABASE__PATH=/var/lib/gitea/gitea.db
+      - GITEA_REPOSITORY__ROOT=/var/lib/gitea/git/repositories
+      - GITEA_SERVER__DOMAIN=${GITEA_HOST:-localhost}
+      - GITEA_SERVER__ROOT_URL=http://${GITEA_HOST:-localhost}:${GITEA_PORT:-7830}/
+      - GITEA_SERVER__HTTP_PORT=3000
+      - GITEA_SERVER__SSH_PORT=${GITEA_SSH_PORT:-2222}
+      - GITEA_SECURITY__INSTALL_LOCK=true
+      - GITEA_SERVICE__DISABLE_REGISTRATION=true
+      - GITEA_SERVICE__REQUIRE_SIGNIN_VIEW=true
+      - GITEA_SERVICE__DEFAULT_USER_IS_ADMIN=true
+      - GITEA__SECURITY__ADMIN_USER=${GITEA_ADMIN_USER:-}
+      - GITEA__SECURITY__ADMIN_PASSWORD=${GITEA_ADMIN_PASSWORD:-}
+      - GITEA__SECURITY__ADMIN_EMAIL=${GITEA_ADMIN_EMAIL:-admin@localhost}
+    volumes:
+      - ./data/gitea:/var/lib/gitea:rw
+    ports:
+      - "${GITEA_PORT:-7830}:3000"
+      - "${GITEA_SSH_PORT:-2222}:2222"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/gitea", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - dream-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+networks:
+  dream-network:
+    external: true

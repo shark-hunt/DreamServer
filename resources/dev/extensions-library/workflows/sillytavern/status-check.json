@@ -1,0 +1,92 @@
+{
+  "name": "SillyTavern Status Check",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "sillytavern-status",
+        "options": {}
+      },
+      "id": "sillytavern-webhook",
+      "name": "SillyTavern Status Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://' + ($env.SILLYTAVERN_HOST || 'localhost') + ':' + ($env.SILLYTAVERN_PORT || '8001') + '/' }}",
+        "method": "GET",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "sillytavern-health",
+      "name": "SillyTavern Health Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process SillyTavern health response\nconst status = $input.first().json.statusCode || 200;\nconst isHealthy = status >= 200 && status < 300;\n\nreturn [{\n  json: {\n    service: 'SillyTavern',\n    status: isHealthy ? 'online' : 'offline',\n    url: $('SillyTavern Health Check').item.json.url || 'N/A',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "process-status",
+      "name": "Process Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.channel || '#general' }}",
+        "text": "={{ '*SillyTavern Status*\n\n**Service:** ' + $json.service + '\n**Status:** ' + ($json.status === 'online' ? '✅ Online' : '❌ Offline') + '\n**Checked:** ' + $json.timestamp }}"
+      },
+      "id": "discord-output",
+      "name": "Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "SillyTavern Status Webhook": {
+      "main": [
+        [
+          {
+            "node": "SillyTavern Health Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SillyTavern Health Check": {
+      "main": [
+        [
+          {
+            "node": "Process Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Status": {
+      "main": [
+        [
+          {
+            "node": "Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "sillytavern-status-v1"
+  }
+}

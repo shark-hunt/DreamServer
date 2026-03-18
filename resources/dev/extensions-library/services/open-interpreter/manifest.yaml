@@ -1,0 +1,44 @@
+schema_version: dream.services.v1
+
+service:
+  id: open-interpreter
+  name: Open Interpreter
+  aliases: [interpreter, oi, code-exec]
+  container_name: dream-open-interpreter
+  host_env: OPEN_INTERPRETER_HOST
+  default_host: open-interpreter
+  port: 8090
+  external_port_env: OPEN_INTERPRETER_PORT
+  external_port_default: 7805
+  health: /health
+  type: docker
+  gpu_backends: [none]
+  category: optional
+  depends_on: []
+  compose_file: compose.yaml
+  description: |
+    Open Interpreter lets LLMs run code locally (Python, JavaScript, Shell, etc.).
+    It provides a ChatGPT-like interface in your terminal and can control Chrome,
+    create/edit files, analyze datasets, and more. Fully local, no API costs.
+  
+  features:
+    code-exec:
+      description: Run Python, JavaScript, Shell code locally
+      vram_required_mb: 0
+    browser:
+      description: Control Chrome browser for research tasks
+      vram_required_mb: 0
+    file-ops:
+      description: Create and edit files, photos, videos, PDFs
+      vram_required_mb: 0
+    data-analysis:
+      description: Plot, clean, and analyze large datasets
+      vram_required_mb: 0
+    
+  tags:
+    - code
+    - local
+    - terminal
+    - browser
+    - file-ops
+    - data

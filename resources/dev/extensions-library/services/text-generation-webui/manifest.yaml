@@ -1,0 +1,51 @@
+schema_version: dream.services.v1
+
+service:
+  id: text-generation-webui
+  name: Text Generation WebUI
+  aliases: [oobabooga, text-gen, tgwebui]
+  container_name: dream-text-generation-webui
+  host_env: TEXT_GEN_WEBUI_HOST
+  default_host: text-generation-webui
+  port: 7862
+  external_port_env: TEXT_GEN_WEBUI_PORT
+  external_port_default: 7862
+  health: /
+  type: docker
+  gpu_backends: [nvidia, amd]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: []
+  env_vars: []
+  description: |
+    Text Generation WebUI (Oobabooga) is the most feature-complete local LLM
+    inference interface. Supports GPTQ, GGUF, AWQ, EXL2, and HF transformer
+    formats. Includes a chat UI, API server, extensions marketplace, LoRA
+    loading, and advanced generation parameters. The goto tool for power users
+    who need full control over inference settings.
+
+  features:
+    inference:
+      description: Load and run GGUF, GPTQ, AWQ, EXL2, and HF transformer models
+      vram_required_mb: 0
+    chat-ui:
+      description: Instruct and chat mode UI with character support
+      vram_required_mb: 0
+    openai-api:
+      description: OpenAI-compatible API server (port 5001)
+      vram_required_mb: 0
+    extensions:
+      description: Built-in extensions for Whisper STT, Silero TTS, and more
+      vram_required_mb: 512
+    lora:
+      description: LoRA adapter loading and merging
+      vram_required_mb: 0
+
+  tags:
+    - llm
+    - inference
+    - oobabooga
+    - chat
+    - api
+    - gguf
+    - gptq

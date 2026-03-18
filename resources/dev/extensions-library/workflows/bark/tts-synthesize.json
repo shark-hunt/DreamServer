@@ -1,0 +1,101 @@
+{
+  "name": "Bark TTS Voice Synthesis",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bark-tts",
+        "options": {}
+      },
+      "id": "bark-tts-webhook",
+      "name": "Bark TTS Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://' + ($env.BARK_HOST || 'localhost') + ':' + ($env.BARK_PORT || '8000') + '/tts' }}",
+        "method": "POST",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": "={{ JSON.stringify({\n  text: $json.text || $json.message || 'Hello from Bark',\n  voice_preset: $json.voice || 'v2/en_speaker_6',\n  output_format: $json.format || 'wav'\n}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "bark-tts-api",
+      "name": "Bark TTS API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process Bark TTS response\nconst body = $json;\nconst audioBase64 = body.audio_base64 || '';\nconst sampleRate = body.sample_rate || 24000;\nconst format = body.format || 'wav';\n\nreturn [{\n  json: {\n    success: audioBase64.length > 0,\n    sample_rate: sampleRate,\n    format: format,\n    audio_size_bytes: audioBase64.length,\n    timestamp: new Date().toISOString()\n  },\n  binary: {\n    data: {\n      data: audioBase64,\n      mimeType: 'audio/' + format\n    }\n  }\n}];"
+      },
+      "id": "process-bark-response",
+      "name": "Process Bark Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.channel || '#general' }}",
+        "text": "={{ '*Bark TTS Complete*\\n\\n**Sample Rate:** ' + $json.sample_rate + ' Hz\\n**Format:** ' + $json.format + '\\n**Audio Size:** ' + $json.audio_size_bytes + ' bytes' }}"
+      },
+      "id": "bark-discord-output",
+      "name": "Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Bark TTS Webhook": {
+      "main": [
+        [
+          {
+            "node": "Bark TTS API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bark TTS API": {
+      "main": [
+        [
+          {
+            "node": "Process Bark Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Bark Response": {
+      "main": [
+        [
+          {
+            "node": "Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "bark-tts-workflow-v1"
+  }
+}

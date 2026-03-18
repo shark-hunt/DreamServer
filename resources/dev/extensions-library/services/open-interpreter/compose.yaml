@@ -1,0 +1,40 @@
+name: open-interpreter
+
+services:
+  open-interpreter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dream-open-interpreter
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - PORT=8080
+      - LLM_API_URL=${LLM_API_URL:-http://llama-server:8000}
+    volumes:
+      - ./data/open-interpreter:/app/data:rw
+    ports:
+      - "${OPEN_INTERPRETER_PORT:-7805}:8080"
+    working_dir: /app
+    command: ["python", "server.py"]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - dream-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+networks:
+  dream-network:
+    external: true

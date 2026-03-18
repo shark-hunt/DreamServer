@@ -1,0 +1,27 @@
+services:
+  tts:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.2.4
+    container_name: dream-tts
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - DEFAULT_VOICE=af_heart
+      - UVICORN_WORKERS=2
+    ports:
+      - "127.0.0.1:${TTS_PORT:-8880}:8880"
+    deploy:
+      resources:
+        limits:
+          cpus: '8.0'
+          memory: 4G
+        reservations:
+          cpus: '2.0'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8880/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

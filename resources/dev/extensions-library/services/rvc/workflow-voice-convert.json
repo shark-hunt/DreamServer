@@ -1,0 +1,355 @@
+{
+  "name": "RVC Voice Conversion",
+  "meta": {
+    "title": "RVC Voice Conversion",
+    "description": "Convert voices using RVC local AI",
+    "version": "1.0.4",
+    "type": "workflow"
+  },
+  "nodes": [
+    {
+      "id": 1,
+      "type": "webhook",
+      "name": "Webhook",
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rvc-convert",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Trigger voice conversion via webhook. Set RVC_API_KEY env var to enable authentication. API key via X-API-Key header only (no body fallback)."
+    },
+    {
+      "id": "validate_input",
+      "type": "code",
+      "name": "Validate Input",
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// API Key authentication check - timing-safe comparison\nconst headers = $input.first().json.headers || {};\n\n// Case-insensitive header lookup (defense against platform normalization changes)\nconst headerKeys = Object.keys(headers);\nconst apiKeyHeader = headerKeys.find(k => k.toLowerCase() === 'x-api-key');\nconst providedKey = apiKeyHeader ? headers[apiKeyHeader] : '';\nconst expectedKey = $env.RVC_API_KEY;\n\n// Timing-safe comparison - prevents timing attacks on API key\nfunction timingSafeEqual(a, b) {\n  if (typeof a !== 'string' || typeof b !== 'string') return false;\n  const MAX_LEN = 256;\n\n  // Constant-time length check - fold into result without early exit\n  const lenDiff = a.length ^ b.length;  // 0 if lengths equal, non-zero otherwise\n  let result = lenDiff;  // Start with length difference already folded in\n  // Constant-time comparison: always iterate MAX_LEN, use 0 for out-of-bounds\n  for (let i = 0; i < MAX_LEN; i++) {\n    const charA = i < a.length ? a.charCodeAt(i) : 0;\n    const charB = i < b.length ? b.charCodeAt(i) : 0;\n    result |= charA ^ charB;\n  }\n\n  return result === 0;\n}\n\n// Authentication logic:\n// - If server has expectedKey configured: client MUST provide matching key\n// - If client provides a key but server has none: reject (unauthorized)\n// - If neither configured: allow\nif ((expectedKey || providedKey) && !timingSafeEqual(providedKey || '', expectedKey || '')) {\n  return [{ json: { valid: false, error: 'Authentication failed' } }];\n}\n\nconst model = $input.first().json.model || '';\nconst audioPath = $input.first().json.audio_path || '';\n\n// ENHANCED Path traversal detection\n// Blocks: ../, ..\\, %2e%2e, %252e%252e (double encoded), null bytes, absolute paths\nconst pathTraversalPattern = /(\\.\\.[/\\\\]|%2e%2e[/\\\\]|%252e%252e[/\\\\]|%00|\\x00|^\\/|^[a-zA-Z]:\\\\)/i;\nlet normalizedPath;\ntry {\n  normalizedPath = decodeURIComponent(audioPath).normalize('NFC');\n} catch (e) {\n  return [{ json: { valid: false, error: 'Invalid audio_path: malformed URL encoding' } }];\n}\n\n// Check model name (alphanumeric, dash, underscore only - NO backslashes)\nconst validModelPattern = /^[a-zA-Z0-9_-]+$/;\n\n// Validate f0_method against allowlist\nconst validF0Methods = ['harvest', 'pm', 'dio', 'rmvpe', 'crepe', 'crepe-tiny'];\nconst f0Method = ($input.first().json.f0_method || 'rmvpe').toLowerCase();\n\n// Validate pitch is a number within safe range\nconst pitch = parseInt($input.first().json.pitch ?? 0, 10);\nif (isNaN(pitch) || pitch < -12 || pitch > 12) {\n  return [{ json: { valid: false, error: 'Invalid pitch: must be between -12 and +12 semitones' } }];\n}\n\nif (pathTraversalPattern.test(audioPath) || pathTraversalPattern.test(normalizedPath)) {\n  return [{\n    json: {\n      valid: false,\n      error: 'Path traversal detected: audio_path must not contain directory traversal sequences'\n    }\n  }];\n}\n\nif (model && !validModelPattern.test(model)) {\n  return [{\n    json: {\n      valid: false,\n      error: 'Invalid model name: must be alphanumeric, dash, or underscore only'\n    }\n  }];\n}\n\nif (!validF0Methods.includes(f0Method)) {\n  return [{ json: { valid: false, error: 'Invalid f0_method: must be one of ' + validF0Methods.join(', ') } }];\n}\n\nreturn [{\n  json: {\n    valid: true,\n    model: model || 'default',\n    audio: $input.first().json.audio,\n    audio_path: audioPath,\n    pitch: pitch,\n    f0_method: f0Method\n  }\n}];"
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "SECURITY: Input validation with enhanced path traversal protection, timing-safe API key auth (header only, no body fallback), f0_method allowlist, and pitch range validation. All validations fail hard - no fallback to user input."
+    },
+    {
+      "id": "check_valid",
+      "type": "if",
+      "name": "Check Valid",
+      "position": [
+        600,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "type": "boolean"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "name": "equal",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Branch based on validation result"
+    },
+    {
+      "id": "error_response",
+      "type": "respondToWebhook",
+      "name": "Error Response",
+      "position": [
+        600,
+        500
+      ],
+      "parameters": {
+        "statusCode": 400,
+        "body": "={{ JSON.stringify({ error: $('Validate Input').item.json.error }) }}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Return HTTP 400 for validation errors"
+    },
+    {
+      "id": 2,
+      "type": "httpRequest",
+      "name": "RVC Upload Voice",
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "url": "={{ $env.RVC_HOST.replace(/\\/$/, '') }}",
+        "method": "POST",
+        "path": "/upload",
+        "body": {
+          "mimeType": "multipart/form-data",
+          "form-data": [
+            {
+              "key": "audio",
+              "type": "file",
+              "value": "={{ $json.audio }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000,
+          "maxResponseSize": 104857600
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Upload source audio to RVC. Requires RVC_HOST env var (no fallback)."
+    },
+    {
+      "id": "validate_upload",
+      "type": "code",
+      "name": "Validate Upload Path",
+      "position": [
+        800,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const uploadResponse = $input.first().json || {};\nconst path = uploadResponse.path || '';\n\n// Must have a path from upload - no fallback to user input\nif (!path) {\n  return [{ json: { valid: false, error: 'No audio path returned from upload service' } }];\n}\n\n// Strict validation: must be /tmp/<alphanumeric>.<ext>\nconst validPathPattern = /^\\/tmp\\/[a-zA-Z0-9_-]+\\.(wav|mp3|ogg|flac|webm)$/i;\n\n// Path traversal check\nconst traversalPattern = /(\\.\\.[/\\\\]|%2e%2e%2[fF]|%252e%252e%252[fF]|%2[fF]|%252[fF]|%00)/i;\n\nif (traversalPattern.test(path) || !validPathPattern.test(path)) {\n  return [{ json: { valid: false, error: 'Invalid upload response path: failed validation' } }];\n}\n\nreturn [{ json: { valid: true, path: path } }];"
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Validates upload response path: must be /tmp/<alphanumeric>.<ext>, no traversal. No fallback to user input."
+    },
+    {
+      "id": "check_upload_valid",
+      "type": "if",
+      "name": "Check Upload Valid",
+      "position": [
+        850,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "type": "boolean"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "name": "equal",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Branch based on upload path validation"
+    },
+    {
+      "id": "upload_error_response",
+      "type": "respondToWebhook",
+      "name": "Upload Error Response",
+      "position": [
+        850,
+        500
+      ],
+      "parameters": {
+        "statusCode": 400,
+        "body": "={{ JSON.stringify({ error: $('Validate Upload Path').item.json.error || 'Upload validation failed' }) }}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Return HTTP 400 for upload path validation failures"
+    },
+    {
+      "id": 3,
+      "type": "httpRequest",
+      "name": "RVC Convert",
+      "position": [
+        1000,
+        300
+      ],
+      "parameters": {
+        "url": "={{ $env.RVC_HOST.replace(/\\/$/, '') }}",
+        "method": "POST",
+        "path": "/convert",
+        "body": {
+          "mimeType": "application/json",
+          "raw": "={{ JSON.stringify({ model: $('Check Valid').item.json.model || 'default', audio_path: $('Check Upload Valid').item.json.path, pitch: $('Check Valid').item.json.pitch || 0, f0_method: $('Check Valid').item.json.f0_method || 'rmvpe' }) }}"
+        },
+        "options": {
+          "timeout": 300000,
+          "maxResponseSize": 104857600
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Convert uploaded voice using RVC model. Uses validated upload path only."
+    },
+    {
+      "id": "success_response",
+      "type": "respondToWebhook",
+      "name": "Success Response",
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "statusCode": 200,
+        "body": "={{ JSON.stringify({ success: true, download_url: $json.download_url || $json.url || 'N/A' }) }}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Return HTTP 200 with download URL"
+    },
+    {
+      "id": 4,
+      "type": "Discord",
+      "name": "Discord Notification",
+      "position": [
+        1200,
+        500
+      ],
+      "parameters": {
+        "webhookUrl": "={{ $env.DISCORD_WEBHOOK_URL || '' }}",
+        "text": "={{ 'Voice conversion complete! Download: ' + ($json.download_url || $json.url || 'N/A') }}",
+        "username": "RVC Bot"
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Send Discord notification when conversion is done"
+    }
+  ],
+  "connections": {
+    "1": {
+      "main": [
+        [
+          {
+            "node": "validate_input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validate_input": {
+      "main": [
+        [
+          {
+            "node": "check_valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_valid": {
+      "main": [
+        [
+          {
+            "node": 2,
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "false": [
+        [
+          {
+            "node": "error_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2": {
+      "main": [
+        [
+          {
+            "node": "validate_upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validate_upload": {
+      "main": [
+        [
+          {
+            "node": "check_upload_valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_upload_valid": {
+      "main": [
+        [
+          {
+            "node": 3,
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "false": [
+        [
+          {
+            "node": "upload_error_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3": {
+      "main": [
+        [
+          {
+            "node": "success_response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": 4,
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

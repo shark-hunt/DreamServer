@@ -1,0 +1,31 @@
+# Dream Server — NVIDIA GPU Overlay (Core Services Only)
+# ComfyUI GPU config moved to extensions/services/comfyui/compose.nvidia.yaml
+# Whisper GPU config moved to extensions/services/whisper/compose.nvidia.yaml
+# Use with: docker compose -f docker-compose.base.yml -f docker-compose.nvidia.yml up -d
+
+services:
+  llama-server:
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b8248}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+        limits:
+          cpus: '16.0'
+          memory: ${LLAMA_SERVER_MEMORY_LIMIT:-64G}
+
+  dashboard-api:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [utility]
+
+  open-webui:
+    environment:
+      AUDIO_STT_MODEL: "deepdml/faster-whisper-large-v3-turbo-ct2"

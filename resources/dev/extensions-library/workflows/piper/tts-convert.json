@@ -1,0 +1,101 @@
+{
+  "name": "Piper TTS Voice Synthesis",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "piper-tts",
+        "options": {}
+      },
+      "id": "piper-tts-webhook",
+      "name": "TTS Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://' + ($env.PIPER_HOST || 'localhost') + ':' + ($env.PIPER_PORT || '5000') + '/api/tts' }}",
+        "method": "POST",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": "={{ JSON.stringify({\n  text: $json.text || $json.message || 'Default text',\n  speaker_id: $json.speaker || 'default',\n  speed: parseFloat($json.speed || '1.0')\n}) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "piper-tts-api",
+      "name": "Piper TTS API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process TTS audio response\nconst body = $json;\nconst audioBase64 = body.audio || body.audio_base64 || '';\nconst duration = body.duration || 0;\nconst speaker = body.speaker || 'default';\n\nreturn [{\n  json: {\n    success: audioBase64.length > 0,\n    speaker: speaker,\n    duration_seconds: duration,\n    audio_size_bytes: audioBase64.length,\n    timestamp: new Date().toISOString()\n  },\n  binary: {\n    data: {\n      data: audioBase64,\n      mimeType: 'audio/wav'\n    }\n  }\n}];"
+      },
+      "id": "process-tts-response",
+      "name": "Process TTS Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.channel || '#general' }}",
+        "text": "={{ '*Voice Synthesized*\\n\\n**Speaker:** ' + $json.speaker + '\\n**Duration:** ' + ($json.duration_seconds || 0).toFixed(2) + 's\\n**Audio Size:** ' + $json.audio_size_bytes + ' bytes' }}"
+      },
+      "id": "tts-discord-output",
+      "name": "Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "TTS Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Piper TTS API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Piper TTS API": {
+      "main": [
+        [
+          {
+            "node": "Process TTS Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process TTS Response": {
+      "main": [
+        [
+          {
+            "node": "Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "piper-tts-workflow-v1"
+  }
+}

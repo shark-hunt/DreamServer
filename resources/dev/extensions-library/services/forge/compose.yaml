@@ -1,0 +1,43 @@
+name: forge
+
+services:
+  forge:
+    image: ghcr.io/ai-dock/stable-diffusion-webui-forge@sha256:36a8b82c9ddec17a88303d933f3d08d2c1d1286617f5642281859f64d40beddc
+    container_name: dream-forge
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - FORGE_PORT_HOST=7861
+      - FORGE_ARGS=--api --listen
+      - AUTO_UPDATE=false
+    volumes:
+      - ./data/forge/models:/opt/stable-diffusion-webui-forge/models:rw
+      - ./data/forge/outputs:/opt/stable-diffusion-webui-forge/outputs:rw
+    ports:
+      - "${FORGE_PORT:-7861}:7861"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7861/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+    networks:
+      - dream-network
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 16G
+        reservations:
+          cpus: '1.0'
+          memory: 4G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+networks:
+  dream-network:
+    external: true
+    name: dream-network

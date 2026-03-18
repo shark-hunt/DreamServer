@@ -1,0 +1,250 @@
+{
+  "name": "Bark TTS",
+  "meta": {
+    "title": "Bark TTS",
+    "description": "Generate speech using Bark TTS",
+    "version": "1.0.5",
+    "type": "workflow"
+  },
+  "nodes": [
+    {
+      "id": "webhook",
+      "type": "n8n-nodes-base.webhook",
+      "name": "Webhook",
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "bark-tts",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Trigger Bark TTS via webhook. Expected JSON: { text, voice_preset?, output_format? }. API key via X-API-Key header only (no body fallback). Set BARK_API_KEY env var to enable auth.",
+      "typeVersion": 1
+    },
+    {
+      "id": "validate_input",
+      "type": "n8n-nodes-base.code",
+      "name": "Validate Input",
+      "position": [
+        550,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// API Key authentication check - timing-safe comparison\\nconst headers = $input.first().json.headers || {};\\n\\n// Case-insensitive header lookup (defense against platform normalization changes)\\nconst headerKeys = Object.keys(headers);\\nconst apiKeyHeader = headerKeys.find(k => k.toLowerCase() === 'x-api-key');\\nconst providedKey = apiKeyHeader ? headers[apiKeyHeader] : '';\\nconst expectedKey = $env.BARK_API_KEY || '';\\n\\n// Timing-safe comparison - constant time regardless of input length\\n// Prevents timing oracle attacks by ensuring comparison takes same time for all inputsfunction timingSafeEqual(a, b) {\\n  if (typeof a !== 'string' || typeof b !== 'string') return false;\\n  const MAX_LEN = 128;\\n  \\n  // Constant-time comparison: fold length checks into character comparison\\n  // Always iterate MAX_LEN, using 0 for out-of-bounds positions\\n  let result = 0;\\n  for (let i = 0; i < MAX_LEN; i++) {\\n    // Get character code (0 for out-of-bounds) - constant-time indexing\\n    const charA = i < a.length ? a.charCodeAt(i) : 0;\\n    const charB = i < b.length ? b.charCodeAt(i) : 0;\\n    // XOR accumulates differences - if any position differs, result != 0\\n    result |= charA ^ charB;\\n  }\\n  \\n  // Constant-time length check - fold into result without early exit\\n  // Use bitwise operations to check both length conditions simultaneously\\n  const lenDiff = a.length ^ b.length;  // 0 if lengths equal, non-zero otherwise\\n  result |= lenDiff;  // If lengths differ, result becomes non-zero\\n  \\n  // Final check - constant-time (no branch on result value)\\n  return result === 0;\\n}\\n\\n// Authentication logic:\\n// - If server has expectedKey configured: client MUST provide matching key\\n// - If client provides a key but server has none: reject (unauthorized)\\n// - If neither configured: allow\\nif ((expectedKey || providedKey) && !timingSafeEqual(providedKey || \\'\\', expectedKey || \\'\\')) {\\n  return [{ json: { valid: false, error: \\'Authentication failed\\' } }];\\n}\\n\\n// Validate input types (MEDIUM: prevent runtime errors from non-string values)\\nconst input = $input.first().json || {};\\n\\n// Type validation for required fields\\nif (typeof input.text !== 'string') {\\n  return [{ json: { valid: false, error: 'text must be a string' } }];\\n}\\nif (typeof input.voice_preset !== 'string') {\\n  return [{ json: { valid: false, error: 'voice_preset must be a string' } }];\\n}\\nif (typeof input.output_format !== 'string') {\\n  return [{ json: { valid: false, error: 'output_format must be a string' } }];\\n}\\n\\nconst text = input.text.trim();\\nconst voicePreset = input.voice_preset || 'v2/en_speaker_6';\\nconst outputFormat = input.output_format.toLowerCase();\\n\\n// Valid Bark voice presets (exact match whitelist)\\nconst validVoices = [\\n  'v2/en_speaker_0', 'v2/en_speaker_1', 'v2/en_speaker_2', 'v2/en_speaker_3',\\n  'v2/en_speaker_4', 'v2/en_speaker_5', 'v2/en_speaker_6', 'v2/en_speaker_7',\\n  'v2/en_speaker_8', 'v2/en_speaker_9',\\n  'v2/de_speaker_0', 'v2/de_speaker_1', 'v2/de_speaker_2', 'v2/de_speaker_3',\\n  'v2/de_speaker_4', 'v2/de_speaker_5', 'v2/de_speaker_6', 'v2/de_speaker_7',\\n  'v2/de_speaker_8', 'v2/de_speaker_9',\\n  'v2/es_speaker_0', 'v2/es_speaker_1', 'v2/es_speaker_2', 'v2/es_speaker_3',\\n  'v2/es_speaker_4', 'v2/es_speaker_5', 'v2/es_speaker_6', 'v2/es_speaker_7',\\n  'v2/es_speaker_8', 'v2/es_speaker_9',\\n  'v2/fr_speaker_0', 'v2/fr_speaker_1', 'v2/fr_speaker_2', 'v2/fr_speaker_3',\\n  'v2/fr_speaker_4', 'v2/fr_speaker_5', 'v2/fr_speaker_6', 'v2/fr_speaker_7',\\n  'v2/fr_speaker_8', 'v2/fr_speaker_9',\\n  'v2/hi_speaker_0', 'v2/hi_speaker_1', 'v2/hi_speaker_2', 'v2/hi_speaker_3',\\n  'v2/hi_speaker_4', 'v2/hi_speaker_5', 'v2/hi_speaker_6', 'v2/hi_speaker_7',\\n  'v2/hi_speaker_8', 'v2/hi_speaker_9',\\n  'v2/it_speaker_0', 'v2/it_speaker_1', 'v2/it_speaker_2', 'v2/it_speaker_3',\\n  'v2/it_speaker_4', 'v2/it_speaker_5', 'v2/it_speaker_6', 'v2/it_speaker_7',\\n  'v2/it_speaker_8', 'v2/it_speaker_9',\\n  'v2/ja_speaker_0', 'v2/ja_speaker_1', 'v2/ja_speaker_2', 'v2/ja_speaker_3',\\n  'v2/ja_speaker_4', 'v2/ja_speaker_5', 'v2/ja_speaker_6', 'v2/ja_speaker_7',\\n  'v2/ja_speaker_8', 'v2/ja_speaker_9',\\n  'v2/ko_speaker_0', 'v2/ko_speaker_1', 'v2/ko_speaker_2', 'v2/ko_speaker_3',\\n  'v2/ko_speaker_4', 'v2/ko_speaker_5', 'v2/ko_speaker_6', 'v2/ko_speaker_7',\\n  'v2/ko_speaker_8', 'v2/ko_speaker_9',\\n  'v2/pl_speaker_0', 'v2/pl_speaker_1', 'v2/pl_speaker_2', 'v2/pl_speaker_3',\\n  'v2/pl_speaker_4', 'v2/pl_speaker_5', 'v2/pl_speaker_6', 'v2/pl_speaker_7',\\n  'v2/pl_speaker_8', 'v2/pl_speaker_9',\\n  'v2/pt_speaker_0', 'v2/pt_speaker_1', 'v2/pt_speaker_2', 'v2/pt_speaker_3',\\n  'v2/pt_speaker_4', 'v2/pt_speaker_5', 'v2/pt_speaker_6', 'v2/pt_speaker_7',\\n  'v2/pt_speaker_8', 'v2/pt_speaker_9',\\n  'v2/ru_speaker_0', 'v2/ru_speaker_1', 'v2/ru_speaker_2', 'v2/ru_speaker_3',\\n  'v2/ru_speaker_4', 'v2/ru_speaker_5', 'v2/ru_speaker_6', 'v2/ru_speaker_7',\\n  'v2/ru_speaker_8', 'v2/ru_speaker_9',\\n  'v2/tr_speaker_0', 'v2/tr_speaker_1', 'v2/tr_speaker_2', 'v2/tr_speaker_3',\\n  'v2/tr_speaker_4', 'v2/tr_speaker_5', 'v2/tr_speaker_6', 'v2/tr_speaker_7',\\n  'v2/tr_speaker_8', 'v2/tr_speaker_9',\\n  'v2/zh_speaker_0', 'v2/zh_speaker_1', 'v2/zh_speaker_2', 'v2/zh_speaker_3',\\n  'v2/zh_speaker_4', 'v2/zh_speaker_5', 'v2/zh_speaker_6', 'v2/zh_speaker_7',\\n  'v2/zh_speaker_8', 'v2/zh_speaker_9'\\n];\\n\\nconst validFormats = ['wav', 'mp3', 'ogg', 'flac'];\\nconst maxTextLength = 10000;\\n\\n// Validation\\nif (!text) {\\n  return [{ json: { valid: false, error: 'text is required' } }];\\n}\\nif (text.length > maxTextLength) {\\n  return [{ json: { valid: false, error: 'text exceeds maximum length of ' + maxTextLength + ' characters' } }];\\n}\\nif (!validVoices.includes(voicePreset)) {\\n  return [{ json: { valid: false, error: 'Invalid voice_preset. Must be one of: ' + validVoices.slice(0, 5).join(', ') + ', ...' } }];\\n}\\nif (!validFormats.includes(outputFormat)) {\\n  return [{ json: { valid: false, error: 'Invalid output_format. Must be one of: ' + validFormats.join(', ') } }];\\n}\\n\\nreturn [{\\n  json: {\\n    valid: true,\\n    text: text,\\n    voice_preset: voicePreset,\\n    output_format: outputFormat\\n  }\\n}];"
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "SECURITY: Input validation with text length limit, voice preset whitelist, format whitelist. Timing-safe API key auth (header only, no body fallback, constant-time comparison with length folded into character comparison to prevent timing attacks).",
+      "typeVersion": 1
+    },
+    {
+      "id": "check_valid",
+      "type": "n8n-nodes-base.if",
+      "name": "Check Valid",
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "conditions": [
+          {
+            "id": "cond1",
+            "leftValue": "={{ $json.valid }}",
+            "operator": {
+              "operation": "equals",
+              "type": "boolean"
+            },
+            "rightValue": true
+          }
+        ],
+        "combineOperation": "all",
+        "options": {
+          "caseSensitive": true,
+          "leftValue": "",
+          "typeValidation": "strict"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Branch based on validation result. True branch continues to Bark TTS Request, false branch goes to Error Response.",
+      "typeVersion": 1
+    },
+    {
+      "id": "error_response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "name": "Error Response",
+      "position": [
+        700,
+        500
+      ],
+      "parameters": {
+        "statusCode": 400,
+        "body": "={{ JSON.stringify({ error: $('Validate Input').item.json.error }) }}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Return HTTP 400 for validation errors. Configured as response node for webhook responseMode.",
+      "typeVersion": 1
+    },
+    {
+      "id": "bark_request",
+      "type": "n8n-nodes-base.httpRequest",
+      "name": "Bark TTS Request",
+      "position": [
+        850,
+        300
+      ],
+      "parameters": {
+        "url": "={{ ($env.BARK_HOST || 'http://bark:9200').replace(/\\/$/, '') }}/tts",
+        "method": "POST",
+        "body": {
+          "mimeType": "application/json",
+          "raw": "={{ JSON.stringify({ text: $('Check Valid').item.json.text, voice_preset: $('Check Valid').item.json.voice_preset, output_format: $('Check Valid').item.json.output_format }) }}"
+        },
+        "options": {
+          "timeout": 300000,
+          "maxResponseSize": 104857600
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Forward validated inputs to Bark TTS service. 5 min timeout, 100MB max response.",
+      "typeVersion": 1
+    },
+    {
+      "id": "save_audio",
+      "type": "n8n-nodes-base.code",
+      "name": "Save Audio",
+      "position": [
+        1000,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// Decode base64 audio and save to file\nconst audioBase64 = $input.first().json.audio_base64;\nconst format = $input.first().json.format || 'wav';\n\nif (!audioBase64) {\n  return [{ json: { saved: false, error: 'No audio data received' } }];\n}\n\nconst fs = require('fs');\nconst path = require('path');\n\n// Whitelist allowed formats for filename extension\nconst validFormats = ['wav', 'mp3', 'ogg', 'flac'];\nconst sanitizedFormat = validFormats.includes(format) ? format : 'wav';\n\n// Generate filename with timestamp - sanitize to prevent path traversal\nconst timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace(/[^a-zA-Z0-9_-]/g, '');\nconst filename = `bark_${timestamp}.${sanitizedFormat}`;\n\n// Path traversal protection - verify resolved path stays within output directory\nconst outputDir = '/data/bark/output';\nconst filepath = path.join(outputDir, filename);\nconst resolvedPath = path.resolve(filepath);\nconst resolvedOutputDir = path.resolve(outputDir);\n\nif (!resolvedPath.startsWith(resolvedOutputDir + path.sep)) {\n  return [{ json: { saved: false, error: 'Invalid filename: path traversal detected' } }];\n}\n\n// Ensure directory exists\nif (!fs.existsSync(outputDir)) {\n  fs.mkdirSync(outputDir, { recursive: true });\n}\n\n// Decode and save\nconst buffer = Buffer.from(audioBase64, 'base64');\n\n// Enforce max file size (100MB)\nconst maxSizeBytes = 100 * 1024 * 1024;\nif (buffer.length > maxSizeBytes) {\n  return [{ json: { saved: false, error: 'Audio file exceeds maximum size of 100MB' } }];\n}\n\nfs.writeFileSync(filepath, buffer);\n\nreturn [{\n  json: {\n    saved: true,\n    filename: filename,\n    filepath: filepath,\n    size_bytes: buffer.length\n  }\n}];"
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Save audio file to disk with path traversal protection. Sanitizes filename, validates resolved path within output directory, enforces 100MB max size.",
+      "typeVersion": 1
+    },
+    {
+      "id": "success_response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "name": "Success Response",
+      "position": [
+        1000,
+        150
+      ],
+      "parameters": {
+        "statusCode": 200,
+        "body": "={{ JSON.stringify({ success: true, format: $('Bark TTS Request').item.json.format, sample_rate: $('Bark TTS Request').item.json.sample_rate, audio_base64_length: ($('Bark TTS Request').item.json.audio_base64 || '').length }) }}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Return successful response with audio details. Configured as response node for webhook responseMode. Returns immediately after Bark TTS Request (parallel to Save Audio).",
+      "typeVersion": 1
+    },
+    {
+      "id": "discord_notify",
+      "type": "n8n-nodes-base.discord",
+      "name": "Discord Notification",
+      "position": [
+        1150,
+        300
+      ],
+      "parameters": {
+        "webhookUri": "={{ $env.DISCORD_WEBHOOK_URL || \"\" }}",
+        "text": "={{ \"Bark TTS complete! File: \" + $(\"Save Audio\").item.json.filename + \" Size: \" + Math.round($(\"Save Audio\").item.json.size_bytes / 1024) + \"KB\" }}"
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Send Discord notification with audio file details.",
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "webhook": {
+      "main": [
+        [
+          {
+            "node": "validate_input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validate_input": {
+      "main": [
+        [
+          {
+            "node": "check_valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_valid": {
+      "main": [
+        [
+          {
+            "node": "bark_request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "error_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "bark_request": {
+      "main": [
+        [
+          {
+            "node": "save_audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "success_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "save_audio": {
+      "main": [
+        [
+          {
+            "node": "discord_notify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

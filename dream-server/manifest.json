@@ -1,0 +1,67 @@
+{
+  "manifestVersion": "1.0.0",
+  "release": {
+    "version": "2.0.0",
+    "channel": "stable",
+    "date": "2026-03-04"
+  },
+  "compatibility": {
+    "os": {
+      "linux": {
+        "supported": true,
+        "notes": "Primary support target"
+      },
+      "windows_wsl2": {
+        "supported": true,
+        "notes": "Tier B path via WSL2 + Docker Desktop"
+      },
+      "macos": {
+        "supported": true,
+        "notes": "Tier B — Apple Silicon with native Metal inference + Docker services"
+      },
+      "windows_native": {
+        "supported": false,
+        "notes": "Installer stub present, production workflow pending"
+      }
+    },
+    "gpuBackends": {
+      "amd": {
+        "supported": true,
+        "minUnifiedMemoryGb": 64
+      },
+      "nvidia": {
+        "supported": true,
+        "minVramGb": 8
+      }
+    },
+    "dependencies": {
+      "dockerComposeV2": ">=2.0.0",
+      "python": ">=3.10"
+    }
+  },
+  "contracts": {
+    "compose": {
+      "canonical": [
+        "docker-compose.base.yml",
+        "docker-compose.amd.yml",
+        "docker-compose.nvidia.yml",
+        "docker-compose.apple.yml"
+      ],
+      "legacyFallback": [
+        "docker-compose.yml"
+      ]
+    },
+    "workflowCatalog": {
+      "canonicalPath": "config/n8n/catalog.json",
+      "legacyFallbackPath": "workflows/catalog.json"
+    },
+    "extensions": {
+      "serviceManifestSchema": "extensions/schema/service-manifest.v1.json",
+      "serviceDirectory": "extensions/services/",
+      "serviceRegistryLib": "lib/service-registry.sh"
+    },
+    "ports": {
+      "canonicalPath": "config/ports.json"
+    }
+  }
+}

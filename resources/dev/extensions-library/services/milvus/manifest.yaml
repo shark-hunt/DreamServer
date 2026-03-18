@@ -1,0 +1,18 @@
+schema_version: dream.services.v1
+
+service:
+  id: milvus
+  name: Milvus (Vector Database)
+  aliases: [vector-db, milvus-db]
+  container_name: dream-milvus
+  host_env: MILVUS_HOST
+  default_host: milvus
+  port: 19530
+  external_port_env: MILVUS_PORT
+  external_port_default: 19530
+  health: /healthz
+  type: docker
+  gpu_backends: [none]
+  compose_file: compose.yaml
+  category: recommended
+  depends_on: []

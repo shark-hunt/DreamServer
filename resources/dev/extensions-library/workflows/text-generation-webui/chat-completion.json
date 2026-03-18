@@ -1,0 +1,101 @@
+{
+  "name": "Text Generation WebUI Chat Completion",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "textgen-chat",
+        "options": {}
+      },
+      "id": "textgen-webhook",
+      "name": "TextGen Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://' + ($env.TEXT_GEN_WEBUI_HOST || 'localhost') + ':' + ($env.TEXT_GEN_WEBUI_API_PORT || '5001') + '/v1/chat/completions' }}",
+        "method": "POST",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": "={{ JSON.stringify({\n  messages: [\n    { role: 'system', content: $json.system || 'You are a helpful assistant.' },\n    { role: 'user', content: $json.prompt || $json.message || 'Hello' }\n  ],\n  model: $json.model || 'local-model',\n  max_tokens: parseInt($json.max_tokens || '512'),\n  temperature: parseFloat($json.temperature || '0.7'),\n  top_p: parseFloat($json.top_p || '0.9'),\n  stream: false\n}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "textgen-api",
+      "name": "TextGen Chat API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process chat completion response\nconst body = $json;\nconst choice = body.choices && body.choices[0] ? body.choices[0] : null;\nconst message = choice ? choice.message : null;\nconst content = message ? message.content : '';\nconst usage = body.usage || {};\n\nreturn [{\n  json: {\n    success: content.length > 0,\n    content: content,\n    role: message ? message.role : 'assistant',\n    model: body.model || 'unknown',\n    prompt_tokens: usage.prompt_tokens || 0,\n    completion_tokens: usage.completion_tokens || 0,\n    total_tokens: usage.total_tokens || 0,\n    finish_reason: choice ? choice.finish_reason : 'unknown',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "process-textgen-response",
+      "name": "Process TextGen Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.channel || '#general' }}",
+        "text": "={{ '*TextGen Response*\\n\\n**Model:** ' + $json.model + '\\n**Tokens:** ' + $json.total_tokens + ' (prompt: ' + $json.prompt_tokens + ', completion: ' + $json.completion_tokens + ')\\n**Finish:** ' + $json.finish_reason + '\\n\\n' + $json.content.substring(0, 500) + ($json.content.length > 500 ? '...' : '') }}"
+      },
+      "id": "textgen-discord-output",
+      "name": "Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "TextGen Webhook": {
+      "main": [
+        [
+          {
+            "node": "TextGen Chat API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TextGen Chat API": {
+      "main": [
+        [
+          {
+            "node": "Process TextGen Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process TextGen Response": {
+      "main": [
+        [
+          {
+            "node": "Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "textgen-chat-workflow-v1"
+  }
+}

@@ -1,0 +1,42 @@
+schema_version: dream.services.v1
+
+service:
+  id: forge
+  name: Forge / A1111
+  aliases: [forge-ui, a1111, stable-diffusion-webui]
+  container_name: dream-forge
+  host_env: FORGE_HOST
+  default_host: forge
+  port: 7861
+  external_port_env: FORGE_PORT
+  external_port_default: 7861
+  health: /
+  type: docker
+  gpu_backends: [nvidia]
+  category: optional
+  depends_on: []
+  description: |
+    Forge (based on Automatic1111) is the original Stable Diffusion web UI.
+    Features extensive model support, extensions, inpainting, outpainting,
+    and professional-grade image generation capabilities. GPU required.
+
+  features:
+    image-generation:
+      description: Full Stable Diffusion control with advanced settings
+      vram_required_mb: 8192
+    inpainting:
+      description: Inpainting with mask support
+      vram_required_mb: 8192
+    outpainting:
+      description: Outpainting beyond image boundaries
+      vram_required_mb: 8192
+    upscaling:
+      description: High-resolution upscaling with multiple engines
+      vram_required_mb: 4096
+
+  tags:
+    - image
+    - stable-diffusion
+    - webui
+    - generative
+    - professional

@@ -1,0 +1,13 @@
+services:
+  whisper:
+    image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          cpus: '4.0'
+          memory: 8G

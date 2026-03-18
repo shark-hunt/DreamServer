@@ -1,0 +1,39 @@
+schema_version: dream.services.v1
+
+service:
+  id: localai
+  name: LocalAI (OpenAI-compatible API)
+  aliases: [local-ai, localai]
+  container_name: localai
+  host_env: LOCALAI_HOST
+  default_host: localai
+  port: 8080
+  external_port_env: LOCALAI_EXTERNAL_PORT
+  external_port_default: 7803
+  health: /
+  type: docker
+  gpu_backends: [amd, nvidia]
+  category: optional
+  depends_on: [llama-server]
+
+features:
+  - id: text-generation
+    name: Text Generation
+    description: Generate text with local LLMs via OpenAI-compatible API
+    vram_mb: 4096
+  - id: image-generation
+    name: Image Generation
+    description: Generate images with local diffusion models
+    vram_mb: 8192
+  - id: audio-generation
+    name: Audio Generation
+    description: Generate audio with local models
+    vram_mb: 4096
+  - id: video-generation
+    name: Video Generation
+    description: Generate video with local models
+    vram_mb: 16384
+  - id: voice-cloning
+    name: Voice Cloning
+    description: Clone voices for TTS with local models
+    vram_mb: 4096

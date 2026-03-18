@@ -1,0 +1,39 @@
+name: xtts
+
+services:
+  xtts:
+    image: daswer123/xtts-api-server:latest
+    container_name: dream-xtts
+    ports:
+      - "${XTTS_PORT:-8100}:80"
+    volumes:
+      - ./data/xtts:/app/tts_models
+    environment:
+      - COQUI_TOS_AGREED=1
+      - PORT=80
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+          devices:
+            - capabilities: ["gpu"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - dream-network
+
+networks:
+  dream-network:
+    external: true
+    name: dream-network

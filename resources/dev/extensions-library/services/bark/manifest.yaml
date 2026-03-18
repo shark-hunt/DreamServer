@@ -1,0 +1,57 @@
+schema_version: dream.services.v1
+
+service:
+  id: bark
+  name: Bark TTS
+  aliases: [bark-tts, suno-bark, expressive-tts]
+  container_name: dream-bark
+  host_env: BARK_HOST
+  default_host: bark
+  port: 9200
+  external_port_env: BARK_PORT
+  external_port_default: 9200
+  health: /health
+  type: docker
+  gpu_backends: [nvidia]
+  compose_file: compose.yaml
+  category: optional
+  depends_on: []
+  env_vars:
+    - name: BARK_USE_SMALL_MODELS
+      description: Use smaller/faster Bark models (less VRAM, slightly lower quality)
+      default: "false"
+    - name: BARK_OFFLOAD_CPU
+      description: Offload Bark models to CPU between requests (reduces VRAM usage)
+      default: "false"
+    - name: BARK_API_KEY
+      description: API key for Bark TTS service authentication (optional; leave empty to disable auth)
+      default: ""
+  description: |
+    Bark is a transformer-based text-to-audio model by Suno AI. Unlike
+    traditional TTS, Bark generates highly expressive, realistic speech including
+    laughter, sighs, hesitation, and non-verbal sounds. Supports 13 languages
+    with multiple voice presets per language. Can also generate music and sound
+    effects. Ideal when you need natural, emotionally-expressive voice output
+    beyond what rule-based TTS can deliver.
+
+    Note: First startup downloads ~5GB of models. Subsequent starts are fast.
+
+  features:
+    expressive-tts:
+      description: Highly realistic speech with laughter, sighs, and emotion
+      vram_required_mb: 4000
+    multilingual:
+      description: 13 language voice presets (English, German, Spanish, French, etc.)
+      vram_required_mb: 4000
+    sound-effects:
+      description: Generate music snippets and ambient sound effects
+      vram_required_mb: 4000
+
+  tags:
+    - tts
+    - voice
+    - speech
+    - audio
+    - multilingual
+    - expressive
+    - suno

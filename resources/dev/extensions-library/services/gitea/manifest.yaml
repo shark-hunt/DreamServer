@@ -1,0 +1,41 @@
+schema_version: dream.services.v1
+
+service:
+  id: gitea
+  name: Gitea (Git Hosting)
+  aliases: [git]
+  container_name: dream-gitea
+  host_env: GITEA_HOST
+  default_host: gitea
+  port: 3000
+  external_port_env: GITEA_PORT
+  external_port_default: 7830
+  health: /api/healthz
+  type: docker
+  gpu_backends: []
+  compose_file: compose.yaml
+  category: optional
+  depends_on: []
+  env_vars:
+    - key: GITEA_HOST
+      description: "Hostname for Gitea server"
+      default: "localhost"
+    - key: GITEA_PORT
+      description: "External port for Gitea web interface"
+      default: "7830"
+    - key: GITEA_SSH_PORT
+      description: "External port for Gitea SSH access"
+      default: "2222"
+    - key: GITEA_APP_NAME
+      description: "Display name for the Gitea instance"
+      default: "Dream Server Git"
+    - key: GITEA_ADMIN_USER
+      description: "Default admin username (created on first run)"
+      default: ""
+    - key: GITEA_ADMIN_PASSWORD
+      description: "Default admin password (created on first run)"
+      secret: true
+      default: ""
+    - key: GITEA_ADMIN_EMAIL
+      description: "Default admin email"
+      default: "admin@localhost"

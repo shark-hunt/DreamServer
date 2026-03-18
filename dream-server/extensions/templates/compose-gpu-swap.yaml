@@ -1,0 +1,101 @@
+# =============================================================================
+# GPU Overlay Template — Pattern 1: CPU-Base with GPU Tag Swap
+# =============================================================================
+#
+# USE THIS PATTERN WHEN:
+#   Your service runs on CPU by default and you want to accelerate it on GPU.
+#   The base compose.yaml carries the full service definition with a CPU image.
+#   The GPU overlay only swaps the image tag and adds device reservations.
+#
+# HOW IT WORKS:
+#   Docker Compose merges overlays on top of the base. Keys in the overlay
+#   replace matching keys in the base, so setting `image:` here replaces the
+#   CPU image from compose.yaml. The `deploy.resources` block is also replaced
+#   because the GPU variant typically needs different resource limits.
+#
+# REAL EXAMPLE:
+#   extensions/services/whisper/compose.yaml        (CPU image: latest-cpu)
+#   extensions/services/whisper/compose.nvidia.yaml  (swaps to: latest-cuda)
+#
+# FILE LAYOUT:
+#   extensions/services/my-service/
+#     manifest.yaml
+#     compose.yaml           <-- Full definition with CPU image (see compose-template.yaml)
+#     compose.nvidia.yaml    <-- This file (NVIDIA GPU swap)
+#     compose.amd.yaml       <-- Same idea, targeting AMD ROCm
+#
+# The compose resolver (resolve-compose-stack.sh) picks up the correct overlay
+# based on the detected GPU vendor. Only one overlay is active at a time.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# compose.nvidia.yaml — NVIDIA CUDA overlay
+# -----------------------------------------------------------------------------
+# Only the keys that DIFFER from the CPU base need to appear here.
+# Everything else (container_name, ports, volumes, healthcheck, etc.)
+# is inherited from compose.yaml unchanged.
+
+services:
+  my-service:
+    # Swap the CPU image tag for the CUDA variant.
+    # The base compose.yaml has: image: myorg/my-service:latest-cpu
+    image: myorg/my-service:latest-cuda
+
+    # Grant access to NVIDIA GPUs via the container toolkit.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1                # Number of GPUs to reserve (use "all" for every GPU)
+              capabilities: [gpu]
+        # GPU workloads often need more memory than CPU-only.
+        limits:
+          cpus: '4.0'
+          memory: 8G
+
+
+# -----------------------------------------------------------------------------
+# compose.amd.yaml — AMD ROCm overlay (same file, different name)
+# -----------------------------------------------------------------------------
+# For AMD GPUs, there is no deploy.resources.devices driver shorthand.
+# Instead, pass the DRI and KFD device nodes directly.
+#
+# Below is what compose.amd.yaml would look like for the same service.
+# Copy this into a separate compose.amd.yaml file.
+# -----------------------------------------------------------------------------
+#
+# services:
+#   my-service:
+#     # Swap the CPU image tag for the ROCm variant.
+#     image: myorg/my-service:latest-rocm
+#
+#     # AMD GPU device passthrough — required for ROCm.
+#     devices:
+#       - /dev/dri:/dev/dri
+#       - /dev/kfd:/dev/kfd
+#
+#     # The container user must belong to the video and render groups on the host.
+#     group_add:
+#       - "${VIDEO_GID:-44}"
+#       - "${RENDER_GID:-992}"
+#
+#     # ROCm sometimes needs relaxed seccomp for profiling/debugging.
+#     cap_add:
+#       - SYS_PTRACE
+#     security_opt:
+#       - seccomp:unconfined
+#
+#     # AMD-specific environment (adjust GFX version to your card).
+#     environment:
+#       - HSA_OVERRIDE_GFX_VERSION=11.5.1
+#
+#     deploy:
+#       resources:
+#         limits:
+#           cpus: '4.0'
+#           memory: 8G
+#         reservations:
+#           cpus: '1.0'
+#           memory: 2G

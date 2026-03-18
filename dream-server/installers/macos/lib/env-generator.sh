@@ -1,0 +1,468 @@
+#!/bin/bash
+# ============================================================================
+# Dream Server macOS Installer -- Environment Generator
+# ============================================================================
+# Part of: installers/macos/lib/
+# Purpose: Generate .env file, SearXNG config, OpenClaw configs
+#          Uses /dev/urandom + openssl for secrets
+#
+# Canonical source: installers/phases/06-directories.sh (keep .env format in sync)
+#
+# Modder notes:
+#   Modify generate_dream_env to add new environment variables.
+#   All secrets use cryptographic RNG -- never use $RANDOM for secrets.
+# ============================================================================
+
+# Generate cryptographically secure hex string
+new_secure_hex() {
+    local bytes="${1:-32}"
+    openssl rand -hex "$bytes" 2>/dev/null || \
+        head -c "$bytes" /dev/urandom | xxd -p | tr -d '\n'
+}
+
+# Generate cryptographically secure base64 string
+new_secure_base64() {
+    local bytes="${1:-32}"
+    openssl rand -base64 "$bytes" 2>/dev/null | tr -d '\n' || \
+        head -c "$bytes" /dev/urandom | base64 | tr -d '\n'
+}
+
+# Read a KEY=VALUE pair from an existing .env file.
+# Arguments:
+#   1) env_path: full path to .env
+#   2) key: environment variable name (e.g., DASHBOARD_API_KEY)
+# Output: the value (without quotes), or empty string if not found.
+read_env_value() {
+    local env_path="$1"
+    local key="$2"
+    [[ -f "$env_path" ]] || { echo ""; return 0; }
+    grep -E "^${key}=" "$env_path" 2>/dev/null | head -n 1 | cut -d'=' -f2- | tr -d '\r' || true
+}
+
+# Read SearXNG secret_key from an existing settings.yml file.
+# Arguments:
+#   1) settings_path: full path to settings.yml
+# Output: the secret_key value, or empty string if not found.
+read_searxng_secret() {
+    local settings_path="$1"
+    [[ -f "$settings_path" ]] || { echo ""; return 0; }
+    # Expected line format: secret_key: "...."
+    grep -E '^[[:space:]]*secret_key:[[:space:]]*"' "$settings_path" 2>/dev/null \
+        | head -n 1 \
+        | sed -E 's/^[[:space:]]*secret_key:[[:space:]]*"([^"]+)".*$/\1/' \
+        | tr -d '\r' || true
+}
+
+# Detect system timezone (macOS-specific)
+detect_timezone() {
+    local tz=""
+    # macOS: read from systemsetup or /etc/localtime symlink
+    tz=$(systemsetup -gettimezone 2>/dev/null | awk -F': ' '{print $2}')
+    if [[ -z "$tz" ]] && [[ -L /etc/localtime ]]; then
+        tz=$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')
+    fi
+    echo "${tz:-UTC}"
+}
+
+generate_dream_env() {
+    local install_dir="$1"
+    local tier="$2"
+    local force_overwrite="${3:-false}"
+
+    local env_path="${install_dir}/.env"
+    local searx_settings_path="${install_dir}/config/searxng/settings.yml"
+
+    # Idempotency: preserve existing .env (and secrets) unless --force was provided.
+    if [[ -f "$env_path" ]] && [[ "$force_overwrite" != "true" ]]; then
+        ENV_DASHBOARD_KEY="$(read_env_value "$env_path" "DASHBOARD_API_KEY")"
+        ENV_OPENCLAW_TOKEN="$(read_env_value "$env_path" "OPENCLAW_TOKEN")"
+
+        # SearXNG secret is stored in settings.yml, not .env.
+        ENV_SEARXNG_SECRET="$(read_searxng_secret "$searx_settings_path")"
+        if [[ -z "$ENV_SEARXNG_SECRET" ]]; then
+            ENV_SEARXNG_SECRET="$(new_secure_hex 32)"
+        fi
+        return 0
+    fi
+
+    # Generate secrets
+    local webui_secret
+    webui_secret=$(new_secure_hex 32)
+    local n8n_pass
+    n8n_pass=$(new_secure_base64 16)
+    local litellm_key
+    litellm_key="sk-dream-$(new_secure_hex 16)"
+    local livekit_secret
+    livekit_secret=$(new_secure_base64 32)
+    local livekit_api_key
+    livekit_api_key=$(new_secure_hex 16)
+    local dashboard_api_key
+    dashboard_api_key=$(new_secure_hex 32)
+    local openclaw_token
+    openclaw_token=$(new_secure_hex 24)
+    local qdrant_api_key
+    qdrant_api_key=$(new_secure_hex 32)
+    local opencode_password
+    opencode_password=$(new_secure_base64 16)
+    local searxng_secret
+    searxng_secret=$(new_secure_hex 32)
+    # Langfuse (LLM Observability)
+    # NOTE: macOS env-generator always regenerates secrets (no merge logic).
+    # If reinstalling with existing Langfuse data, run: rm -rf data/langfuse/
+    local langfuse_nextauth_secret
+    langfuse_nextauth_secret=$(new_secure_hex 32)
+    local langfuse_salt
+    langfuse_salt=$(new_secure_hex 32)
+    local langfuse_encryption_key
+    langfuse_encryption_key=$(new_secure_hex 32)
+    local langfuse_db_password
+    langfuse_db_password=$(new_secure_hex 16)
+    local langfuse_clickhouse_password
+    langfuse_clickhouse_password=$(new_secure_hex 16)
+    local langfuse_redis_password
+    langfuse_redis_password=$(new_secure_hex 16)
+    local langfuse_minio_access_key
+    langfuse_minio_access_key=$(new_secure_hex 16)
+    local langfuse_minio_secret_key
+    langfuse_minio_secret_key=$(new_secure_hex 32)
+    local langfuse_project_public_key
+    langfuse_project_public_key="pk-lf-dream-$(new_secure_hex 16)"
+    local langfuse_project_secret_key
+    langfuse_project_secret_key="sk-lf-dream-$(new_secure_hex 16)"
+    local langfuse_init_project_id
+    langfuse_init_project_id=$(new_secure_hex 16)
+    local langfuse_init_user_password
+    langfuse_init_user_password=$(new_secure_hex 16)
+    # macOS: llama-server runs natively, containers reach it via host.docker.internal
+    local llm_api_url="http://host.docker.internal:8080"
+
+    local tz
+    tz=$(detect_timezone)
+    local timestamp
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Build .env content (matches Phase 06 format)
+    cat > "$env_path" << ENVEOF
+# Dream Server Configuration -- ${TIER_NAME} Edition
+# Generated by macOS installer v${DS_VERSION} on ${timestamp}
+# Tier: ${tier} (${TIER_NAME})
+
+#=== LLM Backend Mode ===
+DREAM_MODE=local
+LLM_API_URL=${llm_api_url}
+
+#=== Cloud API Keys ===
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
+TOGETHER_API_KEY=
+
+#=== LLM Settings (llama-server -- native Metal) ===
+LLM_MODEL=${LLM_MODEL}
+GGUF_FILE=${GGUF_FILE}
+MAX_CONTEXT=${MAX_CONTEXT}
+CTX_SIZE=${MAX_CONTEXT}
+GPU_BACKEND=apple
+HOST_RAM_GB=${SYSTEM_RAM_GB}
+
+#=== Ports ===
+OLLAMA_PORT=8080
+WEBUI_PORT=3000
+SEARXNG_PORT=8888
+PERPLEXICA_PORT=3004
+WHISPER_PORT=9000
+TTS_PORT=8880
+N8N_PORT=5678
+QDRANT_PORT=6333
+QDRANT_GRPC_PORT=6334
+EMBEDDINGS_PORT=8090
+LITELLM_PORT=4000
+OPENCLAW_PORT=7860
+SEARXNG_PORT=8888
+LANGFUSE_PORT=3006
+
+#=== Security (auto-generated, keep secret!) ===
+WEBUI_SECRET=${webui_secret}
+DASHBOARD_API_KEY=${dashboard_api_key}
+N8N_USER=admin
+N8N_PASS=${n8n_pass}
+LITELLM_KEY=${litellm_key}
+LIVEKIT_API_KEY=${livekit_api_key}
+LIVEKIT_API_SECRET=${livekit_secret}
+OPENCLAW_TOKEN=${openclaw_token}
+QDRANT_API_KEY=${qdrant_api_key}
+
+#=== OpenCode Settings ===
+OPENCODE_PORT=3003
+OPENCODE_SERVER_PASSWORD=${opencode_password}
+
+#=== Voice Settings ===
+WHISPER_MODEL=base
+TTS_VOICE=en_US-lessac-medium
+
+#=== Web UI Settings ===
+WEBUI_AUTH=true
+ENABLE_WEB_SEARCH=true
+WEB_SEARCH_ENGINE=searxng
+
+#=== n8n Settings ===
+N8N_AUTH=true
+N8N_HOST=localhost
+N8N_WEBHOOK_URL=http://localhost:5678
+TIMEZONE=${tz}
+
+#=== Langfuse (LLM Observability) ===
+LANGFUSE_ENABLED=false
+LANGFUSE_NEXTAUTH_SECRET=${langfuse_nextauth_secret}
+LANGFUSE_SALT=${langfuse_salt}
+LANGFUSE_ENCRYPTION_KEY=${langfuse_encryption_key}
+LANGFUSE_DB_PASSWORD=${langfuse_db_password}
+LANGFUSE_CLICKHOUSE_PASSWORD=${langfuse_clickhouse_password}
+LANGFUSE_REDIS_PASSWORD=${langfuse_redis_password}
+LANGFUSE_MINIO_ACCESS_KEY=${langfuse_minio_access_key}
+LANGFUSE_MINIO_SECRET_KEY=${langfuse_minio_secret_key}
+LANGFUSE_PROJECT_PUBLIC_KEY=${langfuse_project_public_key}
+LANGFUSE_PROJECT_SECRET_KEY=${langfuse_project_secret_key}
+LANGFUSE_INIT_PROJECT_ID=${langfuse_init_project_id}
+LANGFUSE_INIT_USER_EMAIL=admin@dreamserver.local
+LANGFUSE_INIT_USER_PASSWORD=${langfuse_init_user_password}
+ENVEOF
+
+    # Restrict .env to current user only (chmod 600)
+    chmod 600 "$env_path" 2>/dev/null || true
+
+    # Export secrets for use by other generators
+    ENV_SEARXNG_SECRET="$searxng_secret"
+    ENV_OPENCLAW_TOKEN="$openclaw_token"
+    ENV_DASHBOARD_KEY="$dashboard_api_key"
+}
+
+generate_searxng_config() {
+    local install_dir="$1"
+    local secret_key="$2"
+    local force_overwrite="${3:-false}"
+
+    local config_dir="${install_dir}/config/searxng"
+    mkdir -p "$config_dir"
+    local settings_path="${config_dir}/settings.yml"
+
+    # Idempotency: preserve existing SearXNG config unless forced.
+    if [[ -f "$settings_path" ]] && [[ "$force_overwrite" != "true" ]]; then
+        return 0
+    fi
+
+    cat > "$settings_path" << SEARXEOF
+use_default_settings: true
+server:
+  secret_key: "${secret_key}"
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json
+engines:
+  - name: duckduckgo
+    disabled: false
+  - name: google
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: wikipedia
+    disabled: false
+  - name: github
+    disabled: false
+  - name: stackoverflow
+    disabled: false
+SEARXEOF
+}
+
+generate_openclaw_config() {
+    local install_dir="$1"
+    local llm_model="$2"
+    local max_context="$3"
+    local token="$4"
+    local provider_url="${5:-http://host.docker.internal:8080}"
+    local force_overwrite="${6:-false}"
+    local provider_name="local-llama"
+
+    # Create directories
+    local home_dir="${install_dir}/data/openclaw/home"
+    local agent_dir="${home_dir}/agents/main/agent"
+    local sess_dir="${home_dir}/agents/main/sessions"
+    mkdir -p "$agent_dir" "$sess_dir"
+
+    # Idempotency: if OpenClaw has already been configured, don't overwrite unless forced.
+    if [[ -f "${home_dir}/openclaw.json" ]] && [[ "$force_overwrite" != "true" ]]; then
+        return 0
+    fi
+
+    # Home config
+    cat > "${home_dir}/openclaw.json" << OCEOF
+{
+  "models": {
+    "providers": {
+      "${provider_name}": {
+        "baseUrl": "${provider_url}",
+        "apiKey": "none",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "${llm_model}",
+            "name": "Dream Server LLM (Local)",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+            "contextWindow": ${max_context},
+            "maxTokens": 8192,
+            "compat": {
+              "supportsStore": false,
+              "supportsDeveloperRole": false,
+              "supportsReasoningEffort": false,
+              "maxTokensField": "max_tokens"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {"primary": "${provider_name}/${llm_model}"},
+      "models": {"${provider_name}/${llm_model}": {}},
+      "compaction": {"mode": "safeguard"},
+      "subagents": {"maxConcurrent": 20, "model": "${provider_name}/${llm_model}"}
+    }
+  },
+  "commands": {"native": "auto", "nativeSkills": "auto"},
+  "gateway": {
+    "mode": "local",
+    "bind": "lan",
+    "controlUi": {"allowInsecureAuth": true},
+    "auth": {"mode": "token", "token": "${token}"}
+  }
+}
+OCEOF
+
+    # Auth profiles
+    cat > "${agent_dir}/auth-profiles.json" << AUTHEOF
+{
+  "version": 1,
+  "profiles": {
+    "${provider_name}:default": {
+      "type": "api_key",
+      "provider": "${provider_name}",
+      "key": "none"
+    }
+  },
+  "lastGood": {"${provider_name}": "${provider_name}:default"},
+  "usageStats": {}
+}
+AUTHEOF
+
+    # Models config
+    cat > "${agent_dir}/models.json" << MODEOF
+{
+  "providers": {
+    "${provider_name}": {
+      "baseUrl": "${provider_url}",
+      "apiKey": "none",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "${llm_model}",
+          "name": "Dream Server LLM (Local)",
+          "reasoning": false,
+          "input": ["text"],
+          "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+          "contextWindow": ${max_context},
+          "maxTokens": 8192,
+          "compat": {
+            "supportsStore": false,
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": false,
+            "maxTokensField": "max_tokens"
+          }
+        }
+      ]
+    }
+  }
+}
+MODEOF
+
+    # Workspace directory
+    mkdir -p "${install_dir}/config/openclaw/workspace/memory"
+}
+
+# Auto-configure Perplexica to use local llama-server
+configure_perplexica() {
+    local perplexica_port="${1:-3004}"
+    local llm_model="$2"
+    local base_url="http://localhost:${perplexica_port}"
+
+    # Check if Perplexica is responding
+    local config_json
+    config_json=$(curl -sf "${base_url}/api/config" 2>/dev/null) || return 1
+
+    PYTHON_CMD="python3"
+    if [[ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/python-cmd.sh" ]]; then
+        . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/python-cmd.sh"
+        PYTHON_CMD="$(ds_detect_python_cmd)"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_CMD="python"
+    fi
+
+    # Check if already configured
+    if echo "$config_json" | "$PYTHON_CMD" -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('values',{}).get('setupComplete') else 1)" 2>/dev/null; then
+        return 0
+    fi
+
+    # Seed the chat model
+    local providers
+    providers=$(echo "$config_json" | "$PYTHON_CMD" -c "
+import sys, json
+d = json.load(sys.stdin)
+provs = d.get('values',{}).get('modelProviders',[])
+openai_prov = next((p for p in provs if p.get('type') == 'openai'), None)
+if not openai_prov:
+    sys.exit(1)
+openai_prov['chatModels'] = [{'key': '${llm_model}', 'name': '${llm_model}'}]
+print(json.dumps(provs))
+" 2>/dev/null) || return 1
+
+    curl -sf -X POST "${base_url}/api/config" \
+        -H "Content-Type: application/json" \
+        -d "{\"key\":\"modelProviders\",\"value\":${providers}}" >/dev/null 2>&1 || true
+
+    # Set default models
+    local openai_id
+    openai_id=$(echo "$config_json" | "$PYTHON_CMD" -c "
+import sys, json
+d = json.load(sys.stdin)
+provs = d.get('values',{}).get('modelProviders',[])
+openai_prov = next((p for p in provs if p.get('type') == 'openai'), None)
+transformers_prov = next((p for p in provs if p.get('type') == 'transformers'), None)
+if not openai_prov:
+    sys.exit(1)
+emb_id = (transformers_prov or openai_prov).get('id', openai_prov['id'])
+prefs = {
+    'defaultChatProvider': openai_prov['id'],
+    'defaultChatModel': '${llm_model}',
+    'defaultEmbeddingProvider': emb_id,
+    'defaultEmbeddingModel': 'Xenova/all-MiniLM-L6-v2'
+}
+print(json.dumps(prefs))
+" 2>/dev/null) || return 1
+
+    curl -sf -X POST "${base_url}/api/config" \
+        -H "Content-Type: application/json" \
+        -d "{\"key\":\"preferences\",\"value\":${openai_id}}" >/dev/null 2>&1 || true
+
+    # Mark setup complete
+    curl -sf -X POST "${base_url}/api/config" \
+        -H "Content-Type: application/json" \
+        -d '{"key":"setupComplete","value":true}' >/dev/null 2>&1 || true
+
+    return 0
+}

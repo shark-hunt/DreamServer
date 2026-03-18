@@ -1,0 +1,203 @@
+{
+  "name": "LocalAI Text Generation",
+  "meta": {
+    "title": "LocalAI Text Generation",
+    "description": "Generate text with LocalAI via OpenAI-compatible API",
+    "version": "1.0.0",
+    "type": "workflow"
+  },
+  "nodes": [
+    {
+      "id": "webhook",
+      "type": "webhook",
+      "name": "Webhook",
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "localai-text-generation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Trigger LocalAI text generation via webhook. Expected JSON: { messages, model?, temperature?, max_tokens?, stream? }. API key via X-API-Key header only (no body fallback). Set LOCALAI_API_KEY env var to enable auth."
+    },
+    {
+      "id": "validate_input",
+      "type": "code",
+      "name": "Validate Input",
+      "position": [
+        550,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// API Key authentication check - timing-safe comparison\nconst headers = $input.first().json.headers || {};\n\n// Case-insensitive header lookup (defense against platform normalization changes)\nconst headerKeys = Object.keys(headers);\nconst apiKeyHeader = headerKeys.find(k => k.toLowerCase() === 'x-api-key');\nconst providedKey = apiKeyHeader ? headers[apiKeyHeader] : '';\nconst expectedKey = $env.LOCALAI_API_KEY;\n\n// Timing-safe comparison - prevents timing attacks on API key\nfunction timingSafeEqual(a, b) {\n  if (typeof a !== 'string' || typeof b !== 'string') return false;\n  const MAX_LEN = 256;\n\n  // Include bounds check in result (constant-time, no branch)\n  let result = (a.length > MAX_LEN || b.length > MAX_LEN) ? 1 : 0;\n  // Constant-time comparison: always iterate MAX_LEN, use 0 for out-of-bounds\n  for (let i = 0; i < MAX_LEN; i++) {\n    const charA = i < a.length ? a.charCodeAt(i) : 0;\n    const charB = i < b.length ? b.charCodeAt(i) : 0;\n    result |= charA ^ charB;\n  }\n  // Include length check in constant-time result (CRITICAL: prevents length oracle attacks)\n  result |= (a.length === b.length) ? 0 : 1;\n  return result === 0;\n}\n\n// CRITICAL: Always validate API key if provided, regardless of expectedKey\n// This prevents fail-open vulnerability when env var is unset\n// Authentication logic:\n// - If server has expectedKey configured: client MUST provide matching key\n// - If server has NO expectedKey configured: reject any request that provides a key (unauthorized)\n// - If neither configured: allow (no auth required)\nif ((expectedKey || providedKey) && !timingSafeEqual(providedKey || '', expectedKey || '')) {\n  return [{ json: { valid: false, error: 'Authentication failed' } }];\n}\n\n// Parse and validate input\nconst input = $input.first().json || {};\nconst messages = input.messages;\n\n// Validate messages is an array with at least one message\nif (!Array.isArray(messages) || messages.length === 0) {\n  return [{ json: { valid: false, error: 'messages must be a non-empty array' } }];\n}\n\n// Validate each message has role and content\nfor (let i = 0; i < messages.length; i++) {\n  const msg = messages[i];\n  if (!msg.role || !msg.content) {\n    return [{ json: { valid: false, error: 'Each message must have role and content' } }];\n  }\n  if (typeof msg.content !== 'string') {\n    return [{ json: { valid: false, error: 'Message content must be a string' } }];\n  }\n}\n\n// Validate model name if provided (basic alphanumeric + hyphen/underscore)\nconst model = input.model || 'gpt-4';\nif (typeof model !== 'string' || model.length === 0) {\n  return [{ json: { valid: false, error: 'model must be a non-empty string' } }];\n}\n\n// Validate max_tokens if provided\nconst maxTokens = input.max_tokens;\nif (maxTokens !== undefined) {\n  if (typeof maxTokens !== 'number' || maxTokens < 1 || maxTokens > 32000) {\n    return [{ json: { valid: false, error: 'max_tokens must be a number between 1 and 32000' } }];\n  }\n}\n\n// Validate temperature if provided\nconst temperature = input.temperature;\nif (temperature !== undefined) {\n  if (typeof temperature !== 'number' || temperature < 0 || temperature > 2) {\n    return [{ json: { valid: false, error: 'temperature must be a number between 0 and 2' } }];\n  }\n}\n\nreturn [{\n  json: {\n    valid: true,\n    messages: messages,\n    model: model,\n    temperature: temperature,\n    max_tokens: maxTokens,\n    stream: input.stream || false\n  }\n}];"
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "SECURITY: Input validation with timing-safe API key auth (header only, no body fallback, constant-time length check prevents length oracle attacks). Validates messages array structure, model name format, and numeric parameters."
+    },
+    {
+      "id": "check_valid",
+      "type": "if",
+      "name": "Check Valid",
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "type": "boolean"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.valid }}",
+              "operator": {
+                "name": "equal",
+                "type": "boolean"
+              },
+              "rightValue": true
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Branch based on validation result. True branch continues to LocalAI Request, false branch goes to Error Response."
+    },
+    {
+      "id": "error_response",
+      "type": "respondToWebhook",
+      "name": "Error Response",
+      "position": [
+        700,
+        500
+      ],
+      "parameters": {
+        "statusCode": 400,
+        "body": "={{ JSON.stringify({ error: $('Validate Input').item.json.error }) }}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Return HTTP 400 for validation errors. Configured as response node for webhook responseMode."
+    },
+    {
+      "id": "localai_request",
+      "type": "httpRequest",
+      "name": "LocalAI Request",
+      "position": [
+        850,
+        300
+      ],
+      "parameters": {
+        "url": "={{ ($env.LOCALAI_HOST || 'http://localai:8080').replace(/\\/$/, '') }}/v1/chat/completions",
+        "method": "POST",
+        "body": {
+          "mimeType": "application/json",
+          "raw": "={{ JSON.stringify({\n    messages: $('Check Valid').item.json.messages,\n    model: $('Check Valid').item.json.model,\n    temperature: $('Check Valid').item.json.temperature,\n    max_tokens: $('Check Valid').item.json.max_tokens,\n    stream: $('Check Valid').item.json.stream\n  }) }}"
+        },
+        "headers": {
+          "options": {
+            "values": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "options": {
+          "timeout": 300000,
+          "maxResponseSize": 104857600
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Forward validated inputs to LocalAI API. 5 min timeout, 100MB max response."
+    },
+    {
+      "id": "success_response",
+      "type": "respondToWebhook",
+      "name": "Success Response",
+      "position": [
+        1000,
+        150
+      ],
+      "parameters": {
+        "statusCode": 200,
+        "body": "={{ JSON.stringify($('LocalAI Request').item.json) }}",
+        "headers": {
+          "Content-Type": "application/json"
+        }
+      },
+      "outputNodes": [],
+      "notesInFlow": false,
+      "notes": "Return LocalAI response. Configured as response node for webhook responseMode."
+    }
+  ],
+  "connections": {
+    "webhook": {
+      "main": [
+        [
+          {
+            "node": "validate_input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validate_input": {
+      "main": [
+        [
+          {
+            "node": "check_valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_valid": {
+      "main": [
+        [
+          {
+            "node": "localai_request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "error_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "localai_request": {
+      "main": [
+        [
+          {
+            "node": "success_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

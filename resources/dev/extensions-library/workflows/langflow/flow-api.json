@@ -1,0 +1,140 @@
+{
+  "name": "Langflow Flow API",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "langflow-run",
+        "options": {}
+      },
+      "id": "langflow-webhook",
+      "name": "Langflow Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $json.body || $json;\nconst headers = $json.headers || {};\n\nconst expectedKey = $env.LANGFLOW_API_KEY;\nconst providedKey = headers['x-api-key'] || headers['X-API-Key'];\n\n// Reject keys exceeding max length to prevent truncation attacks\nconst MAX_KEY_LENGTH = 128;\n\nfunction safeCompare(a, b) {\n  // Reject keys exceeding max length first (length is not secret)\n  if (a.length > MAX_KEY_LENGTH || b.length > MAX_KEY_LENGTH) {\n    return false;\n  }\n\n  // Constant-time comparison: always iterate MAX_KEY_LENGTH times\n  // to prevent timing attacks that could leak the expected key length\n  let result = a.length ^ b.length;  // Non-zero if lengths differ\n\n  for (let i = 0; i < MAX_KEY_LENGTH; i++) {\n    // When index exceeds string length, use 0 (null byte) to avoid out-of-bounds\n    const charA = i < a.length ? a.charCodeAt(i) : 0;\n    const charB = i < b.length ? b.charCodeAt(i) : 0;\n    result |= charA ^ charB;\n  }\n  return result === 0;\n}\n\nif (expectedKey && expectedKey.length > 0) {\n  if (!providedKey) {\n    return [{ json: { error: 'Authentication required', code: 401 } }];\n  }\n  if (!safeCompare(expectedKey, providedKey)) {\n    return [{ json: { error: 'Invalid API key', code: 403 } }];\n  }\n}\n\nconst flowId = body.flowId || $env.LANGFLOW_DEFAULT_FLOW_ID;\nif (!flowId) {\n  return [{ json: { error: 'flowId required', code: 400 } }];\n}\n\n// Validate flowId format (UUID v4 or alphanumeric with hyphens only)\nconst validIdPattern = /^[a-zA-Z0-9-]+$/;\nif (!validIdPattern.test(flowId)) {\n  return [{ json: { error: 'Invalid flowId format', code: 400 } }];\n}\n\nreturn [{\n  json: {\n    input_value: body.input || body.message || body.prompt || 'Hello',\n    flowId: flowId,\n    input_type: body.input_type || 'chat',\n    output_type: body.output_type || 'chat',\n    tweaks: body.tweaks || {}\n  }\n}];"
+      },
+      "id": "validate-request",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        450,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ ($env.LANGFLOW_INTERNAL_URL || 'http://langflow:7860') + '/api/v1/run/' + encodeURIComponent($json.flowId) }}",
+        "method": "POST",
+        "headers": {
+          "list": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "body": "={{ JSON.stringify({\n  input_value: $json.input_value,\n  input_type: $json.input_type,\n  output_type: $json.output_type,\n  tweaks: $json.tweaks\n}) }}",
+        "options": {
+          "timeout": 120000,
+          "continueOnFail": true
+        }
+      },
+      "id": "langflow-api",
+      "name": "Langflow API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $json;\n\n// Handle HTTP errors (when continueOnFail catches them)\nif ($('Langflow API').last().error) {\n  return [{\n    json: {\n      error: 'Upstream service error',\n      code: 502\n    }\n  }];\n}\n\nif (response.error) {\n  return [{\n    json: {\n      error: 'Request processing failed',\n      code: response.code || 500\n    }\n  }];\n}\n\n// Extract outputs from Langflow response\nconst outputs = response.outputs || [];\nconst result = outputs[0]?.outputs?.[0]?.results?.message?.text ||\n               outputs[0]?.outputs?.[0]?.artifacts?.message ||\n               'No response';\n\nreturn [{\n  json: {\n    text: result,\n    session_id: response.session_id,\n    outputs: outputs.map(o => ({\n      component: o.component_id,\n      type: o.type\n    }))\n  }\n}];"
+      },
+      "id": "format-response",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        850,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "json": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "respond-to-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1050,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Langflow Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Langflow API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Langflow API": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "staticData": null,
+  "tags": []
+}

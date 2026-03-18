@@ -1,0 +1,33 @@
+services:
+  localai:
+    image: localai/localai:v3.12.1-aio-cpu@sha256:7b8b2b7765c94c054db1b2e25e4fcab53d6316f5de67bd46041d2cf306fb2356
+    container_name: localai
+    networks:
+      - dream-network
+    ports:
+      - "${LOCALAI_EXTERNAL_PORT:-7803}:8080"
+    volumes:
+      - ./data/localai/models:/models
+      - ./data/localai/builds:/builds
+    environment:
+      - MODELS_PATH=/models
+      - CONFIG_PATH=/builds
+      - LLM_API_URL=${LLM_API_URL:-http://llama-server:8080}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  dream-network:
+    external: true

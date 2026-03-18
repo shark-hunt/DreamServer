@@ -1,0 +1,24 @@
+[Unit]
+Description=OpenCode Web UI
+Documentation=https://opencode.ai/docs
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__HOME__
+ExecStart=__HOME__/.opencode/bin/opencode web --port 3003 --hostname 127.0.0.1
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment=HOME=__HOME__
+Environment=PATH=__HOME__/.opencode/bin:/usr/local/bin:/usr/bin:/bin
+Environment=OPENCODE_SERVER_PASSWORD=__OPENCODE_SERVER_PASSWORD__
+
+# Hardening
+NoNewPrivileges=true
+ReadWritePaths=__HOME__
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

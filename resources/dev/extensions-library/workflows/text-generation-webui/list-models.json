@@ -1,0 +1,92 @@
+{
+  "name": "Text Generation WebUI List Models",
+  "active": true,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "textgen-models",
+        "options": {}
+      },
+      "id": "textgen-models-webhook",
+      "name": "TextGen Models Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'http://' + ($env.TEXT_GEN_WEBUI_HOST || 'localhost') + ':' + ($env.TEXT_GEN_WEBUI_API_PORT || '5001') + '/v1/models' }}",
+        "method": "GET",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "textgen-models-api",
+      "name": "TextGen Models API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process models list\nconst body = $json;\nconst models = body.data || [];\n\nreturn [{\n  json: {\n    total_models: models.length,\n    models: models.map(m => ({\n      id: m.id,\n      object: m.object,\n      owned_by: m.owned_by\n    })),\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "process-models-response",
+      "name": "Process Models Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "channel": "={{ $json.channel || '#general' }}",
+        "text": "={{ '*TextGen Available Models*\\n\\n**Total:** ' + $json.total_models + ' models loaded\\n\\n' + $json.models.slice(0, 10).map(m => '• ' + m.id).join('\\n') + ($json.total_models > 10 ? '\\n... and ' + ($json.total_models - 10) + ' more' : '') }}"
+      },
+      "id": "models-discord-output",
+      "name": "Discord Output",
+      "type": "n8n-nodes-base.discord",
+      "typeVersion": 1,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "TextGen Models Webhook": {
+      "main": [
+        [
+          {
+            "node": "TextGen Models API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TextGen Models API": {
+      "main": [
+        [
+          {
+            "node": "Process Models Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Models Response": {
+      "main": [
+        [
+          {
+            "node": "Discord Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "meta": {
+    "instanceId": "textgen-models-workflow-v1"
+  }
+}
